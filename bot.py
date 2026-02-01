@@ -23,7 +23,6 @@ def ensure_user(uid, first_name):
             "history": []
         }
 
-# --- MENÚS ---
 
 async def show_main_menu(update: Update, uid):
     text = (f"🤖 *TeachBot* | Profile: {user_data[uid]['name']}\n\n"
