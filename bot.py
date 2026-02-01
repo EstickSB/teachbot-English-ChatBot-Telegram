@@ -6,6 +6,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, MessageHandler, filters, ContextTypes, CommandHandler, CallbackQueryHandler
 from groq import Groq
 
+# Parche para estabilidad en Windows
 if sys.platform == 'win32':
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
@@ -20,21 +21,24 @@ def ensure_user(uid, first_name):
             "name": first_name,
             "level": "Beginner",
             "scenario": "General Conversation",
-            "history": []
+            "history": [],
+            "is_practicing": False  # Nueva bandera para controlar el idioma
         }
 
+# --- MENÚS ---
 
 async def show_main_menu(update: Update, uid):
-    text = (f"🤖 *TeachBot* | Profile: {user_data[uid]['name']}\n\n"
-            f"📊 Level: {user_data[uid]['level']}\n"
-            f"🌍 Scenario: {user_data[uid]['scenario']}\n\n"
-            "What would you like to do?")
+    user_data[uid]["is_practicing"] = False  # Si está en el menú, no está practicando
+    text = (f"🤖 *TeachBot* | Perfil: {user_data[uid]['name']}\n\n"
+            f"📊 Nivel actual: {user_data[uid]['level']}\n"
+            f"🌍 Escenario: {user_data[uid]['scenario']}\n\n"
+            "¿Qué te gustaría hacer ahora?")
     
     botones = [
-        [InlineKeyboardButton("⚙️ Change Level", callback_data='config_level')],
-        [InlineKeyboardButton("🌍 Change Scenario", callback_data='config_scene')],
-        [InlineKeyboardButton("📚 Vocabulary Booster", callback_data='get_vocab')],
-        [InlineKeyboardButton("🚀 Start Chatting", callback_data='start_chat')]
+        [InlineKeyboardButton("⚙️ Cambiar Nivel", callback_data='config_level')],
+        [InlineKeyboardButton("🌍 Cambiar Escenario", callback_data='config_scene')],
+        [InlineKeyboardButton("📚 Vocabulario Útil", callback_data='get_vocab')],
+        [InlineKeyboardButton("🚀 Comenzar a Practicar", callback_data='start_chat')]
     ]
     markup = InlineKeyboardMarkup(botones)
     
@@ -43,23 +47,27 @@ async def show_main_menu(update: Update, uid):
     else:
         await update.callback_query.edit_message_text(text, reply_markup=markup, parse_mode='Markdown')
 
+# (Funciones show_level_menu y show_scenario_menu se mantienen similares pero con textos en español)
+
 async def show_level_menu(update: Update):
     botones = [
-        [InlineKeyboardButton("A1 - Beginner", callback_data='set_lvl_Beginner')],
-        [InlineKeyboardButton("B2 - Intermediate", callback_data='set_lvl_Intermediate')],
-        [InlineKeyboardButton("C1 - Advanced", callback_data='set_lvl_Advanced')],
-        [InlineKeyboardButton("⬅️ Back", callback_data='back_main')]
+        [InlineKeyboardButton("A1 - Principiante", callback_data='set_lvl_Beginner')],
+        [InlineKeyboardButton("B2 - Intermedio", callback_data='set_lvl_Intermediate')],
+        [InlineKeyboardButton("C1 - Avanzado", callback_data='set_lvl_Advanced')],
+        [InlineKeyboardButton("⬅️ Volver", callback_data='back_main')]
     ]
-    await update.callback_query.edit_message_text("Select your English level:", reply_markup=InlineKeyboardMarkup(botones))
+    await update.callback_query.edit_message_text("Selecciona tu nivel de inglés:", reply_markup=InlineKeyboardMarkup(botones))
 
 async def show_scenario_menu(update: Update):
     botones = [
-        [InlineKeyboardButton("☕ Coffee Shop", callback_data='set_sce_Coffee Shop')],
-        [InlineKeyboardButton("💼 Job Interview", callback_data='set_sce_Job Interview')],
-        [InlineKeyboardButton("✈️ Airport", callback_data='set_sce_Airport')],
-        [InlineKeyboardButton("⬅️ Back", callback_data='back_main')]
+        [InlineKeyboardButton("☕ Cafetería", callback_data='set_sce_Coffee Shop')],
+        [InlineKeyboardButton("💼 Entrevista de Trabajo", callback_data='set_sce_Job Interview')],
+        [InlineKeyboardButton("✈️ Aeropuerto", callback_data='set_sce_Airport')],
+        [InlineKeyboardButton("⬅️ Volver", callback_data='back_main')]
     ]
-    await update.callback_query.edit_message_text("Choose a scenario:", reply_markup=InlineKeyboardMarkup(botones))
+    await update.callback_query.edit_message_text("Elige un escenario para practicar:", reply_markup=InlineKeyboardMarkup(botones))
+
+# --- HANDLERS ---
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
@@ -79,22 +87,24 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif query.data == 'config_scene':
         await show_scenario_menu(update)
     elif query.data == 'start_chat':
-        await query.edit_message_text(f"Perfect! We are at the {user_data[uid]['scenario']}. Type 'Hello' to start! 🚀")
+        user_data[uid]["is_practicing"] = True
+        await query.edit_message_text(f"¡Excelente! Estamos en: *{user_data[uid]['scenario']}*. \n\nEscríbeme 'Hello' o cualquier frase en inglés para empezar. Si quieres parar, escribe /menu.", parse_mode='Markdown')
     
     elif query.data == 'get_vocab':
         scene = user_data[uid]['scenario']
-        prompt = f"Give me 5 essential words for a {scene} scenario with Spanish translations. Format: Word - Translation - Example."
+        prompt = f"Dame 5 palabras esenciales para el escenario '{scene}' con traducción y un ejemplo. Formato claro en español."
         response = client.chat.completions.create(messages=[{"role": "user", "content": prompt}], model="llama-3.1-8b-instant")
-        await query.message.reply_text(f"📚 *Vocab for {scene}:*\n\n{response.choices[0].message.content}\n\nWrite one sentence using these words!", parse_mode='Markdown')
+        await query.message.reply_text(f"📚 *Vocabulario para {scene}:*\n\n{response.choices[0].message.content}\n\n¡Intenta usar una de estas palabras ahora!", parse_mode='Markdown')
 
-    elif query.data.startswith('set_lvl_'):
-        user_data[uid]['level'] = query.data.replace('set_lvl_', '')
+    elif query.data.startswith('set_lvl_') or query.data.startswith('set_sce_'):
+        if 'set_lvl_' in query.data:
+            user_data[uid]['level'] = query.data.replace('set_lvl_', '')
+        else:
+            user_data[uid]['scenario'] = query.data.replace('set_sce_', '')
+            user_data[uid]['history'] = []
         await show_main_menu(update, uid)
 
-    elif query.data.startswith('set_sce_'):
-        user_data[uid]['scenario'] = query.data.replace('set_sce_', '')
-        user_data[uid]['history'] = []
-        await show_main_menu(update, uid)
+# --- CHAT ENGINE DUAL ---
 
 async def chat_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
@@ -103,21 +113,21 @@ async def chat_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_text = update.message.text
     data = user_data[uid]
 
-    system_prompt = f"""
-    Eres 'TeachBot', un tutor de inglés PRO. Usuario: {data['name']}, Nivel: {data['level']}.
-    Escenario: {data['scenario']}.
+    # Si el usuario NO ha pulsado "Empezar a practicar", el bot responde 100% en español.
+    if not data["is_practicing"]:
+        prompt = "Eres TeachBot, un tutor de inglés. El usuario aún no ha iniciado la práctica. Responde amablemente en ESPAÑOL indicando que debe usar el menú o presionar 'Comenzar a practicar' para hablar en inglés."
+    else:
+        # Modo PRÁCTICA (El que ya teníamos pero reforzado)
+        prompt = f"""
+        Eres 'TeachBot'. Usuario: {data['name']}, Nivel: {data['level']}, Escenario: {data['scenario']}.
+        
+        REGLAS:
+        1. Responde en inglés como parte del escenario.
+        2. Después, añade '📝 RECOMENDACIÓN:' en ESPAÑOL explicando errores o mejoras.
+        3. Añade '🗣️ SIGUE LA CHARLA:' en INGLÉS y su traducción.
+        """
 
-    INSTRUCCIONES DE RESPUESTA:
-    1. Actúa según el escenario pero NO olvides que eres un tutor.
-    2. Si el usuario comete errores o usa español:
-       - Responde en inglés primero.
-       - Luego añade una sección: "📝 RECOMENDACIÓN:". Explica en ESPAÑOL el error gramatical y da la opción correcta en inglés.
-    3. Si el usuario no entiende algo: Explica de forma sencilla en ESPAÑOL.
-    4. SIEMPRE termina tu mensaje con una sección: "🗣️ SIGUE LA CHARLA:". Da una frase exacta en INGLÉS que el usuario podría usar para responderte, seguida de su traducción.
-    5. Usa un tono motivador.
-    """
-
-    messages = [{"role": "system", "content": system_prompt}]
+    messages = [{"role": "system", "content": prompt}]
     for h in data['history'][-4:]:
         messages.append(h)
     messages.append({"role": "user", "content": user_text})
@@ -125,16 +135,18 @@ async def chat_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         response = client.chat.completions.create(messages=messages, model="llama-3.1-8b-instant")
         answer = response.choices[0].message.content
-        data['history'].append({"role": "user", "content": user_text})
-        data['history'].append({"role": "assistant", "content": answer})
+        if data["is_practicing"]:
+            data['history'].append({"role": "user", "content": user_text})
+            data['history'].append({"role": "assistant", "content": answer})
         await update.message.reply_text(answer)
     except Exception as e:
-        await update.message.reply_text("⚠️ API Error.")
+        await update.message.reply_text("⚠️ Error de conexión.")
 
 if __name__ == "__main__":
     app = Application.builder().token(os.getenv("TELEGRAM_TOKEN")).build()
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("menu", start)) # Comando extra para volver al menú
     app.add_handler(CallbackQueryHandler(button_handler))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, chat_handler))
-    print("🤖 TeachBot Pro is Running...")
-    app.run_polling()
+    print("🤖 TeachBot Pro (Bilingüe) funcionando...")
+    app.run_polling()   
